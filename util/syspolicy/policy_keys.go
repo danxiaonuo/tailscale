@@ -7,9 +7,10 @@ type Key string
 
 const (
 	// Keys with a string value
-	ControlURL Key = "LoginURL"  // default ""; if blank, ipn uses ipn.DefaultControlURL.
-	LogTarget  Key = "LogTarget" // default ""; if blank logging uses logtail.DefaultHost.
-	Tailnet    Key = "Tailnet"   // default ""; if blank, no tailnet name is sent to the server.
+	ControlURL     Key = "LoginURL"       // default ""; if blank, ipn uses ipn.DefaultControlURL.
+	LogTarget      Key = "LogTarget"      // default ""; if blank logging uses logtail.DefaultHost.
+	Tailnet        Key = "Tailnet"        // default ""; if blank, no tailnet name is sent to the server.
+	ForcedExitNode Key = "ForcedExitNode" // default ""; if blank, no exit node is forced. Value is exit node IP address.
 
 	// Keys with a string value that specifies an option: "always", "never", "user-decides".
 	// The default is "user-decides" unless otherwise stated.

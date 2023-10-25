@@ -757,6 +757,8 @@ func (b *LocalBackend) UpdateStatus(sb *ipnstate.StatusBuilder) {
 						if v := exitPeer.Online(); v != nil {
 							online = *v
 						}
+						b.notify(ipn.Notify{ExitNodeOnline: online})
+
 						s.ExitNodeStatus = &ipnstate.ExitNodeStatus{
 							ID:           prefs.ExitNodeID(),
 							Online:       online,

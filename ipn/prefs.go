@@ -25,6 +25,7 @@ import (
 	"tailscale.com/types/preftype"
 	"tailscale.com/types/views"
 	"tailscale.com/util/dnsname"
+	"tailscale.com/util/syspolicy"
 )
 
 // DefaultControlURL is the URL base of the control plane
@@ -703,11 +704,19 @@ func (p *Prefs) SetExitNodeIP(s string, st *ipnstate.Status) error {
 	if !p.ExitNodeID.IsZero() {
 		return ErrExitNodeIDAlreadySet
 	}
-	ip, err := exitNodeIPOfArg(s, st)
-	if err == nil {
-		p.ExitNodeIP = ip
+	forcedExitNode, _ := syspolicy.GetString(syspolicy.ForcedExitNode, "")
+	if forcedExitNode != "" {
+		if ip, err := netip.ParseAddr(forcedExitNode); err == nil {
+			p.ExitNodeIP = ip
+		}
+	} else {
+		ip, err := exitNodeIPOfArg(s, st)
+		if err == nil {
+			p.ExitNodeIP = ip
+		}
+		return err
 	}
-	return err
+	return nil
 }
 
 // ShouldSSHBeRunning reports whether the SSH server should be running based on
