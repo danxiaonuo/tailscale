@@ -19,7 +19,6 @@ import (
 	"tailscale.com/types/logger"
 	"tailscale.com/util/clientmetric"
 	"tailscale.com/util/cmpx"
-	"tailscale.com/util/syspolicy"
 	"tailscale.com/util/winutil"
 )
 
@@ -470,17 +469,9 @@ var defaultPrefs = func() ipn.PrefsView {
 
 func resolveExitNodeIP(defIP netip.Addr) (ret netip.Addr) {
 	ret = defIP
-	forcedExitNode, _ := syspolicy.GetString(syspolicy.ForcedExitNode, "")
-	if forcedExitNode != "" {
-		if ip, err := netip.ParseAddr(forcedExitNode); err == nil {
+	if exitNode, _ := winutil.GetPolicyString("ExitNodeIP"); exitNode != "" {
+		if ip, err := netip.ParseAddr(exitNode); err == nil {
 			ret = ip
-		}
-	} else {
-
-		if exitNode, _ := winutil.GetPolicyString("ExitNodeIP"); exitNode != "" {
-			if ip, err := netip.ParseAddr(exitNode); err == nil {
-				ret = ip
-			}
 		}
 	}
 	return ret

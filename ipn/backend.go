@@ -121,8 +121,6 @@ type Notify struct {
 	// is available.
 	ClientVersion *tailcfg.ClientVersion `json:",omitempty"`
 
-	ExitNodeOnline bool
-
 	// type is mirrored in xcode/Shared/IPN.swift
 }
 
