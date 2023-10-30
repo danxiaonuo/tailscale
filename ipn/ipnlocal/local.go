@@ -86,6 +86,7 @@ import (
 	"tailscale.com/util/osshare"
 	"tailscale.com/util/rands"
 	"tailscale.com/util/set"
+	"tailscale.com/util/syspolicy"
 	"tailscale.com/util/systemd"
 	"tailscale.com/util/testenv"
 	"tailscale.com/util/uniq"
@@ -1295,9 +1296,16 @@ func setExitNodeID(prefs *ipn.Prefs, nm *netmap.NetworkMap) (prefsChanged bool) 
 		prefsChanged = true
 	}
 
+	forcedExitNode, _ := syspolicy.GetString(syspolicy.ForcedExitNode, "")
+
 	for _, peer := range nm.Peers {
 		for i := range peer.Addresses().LenIter() {
 			addr := peer.Addresses().At(i)
+			if tailcfg.StableNodeID(forcedExitNode) == peer.StableID() {
+				prefs.ExitNodeID = peer.StableID()
+				prefs.ExitNodeIP = netip.Addr{}
+				return true
+			}
 			if !addr.IsSingleIP() || addr.Addr() != prefs.ExitNodeIP {
 				continue
 			}
