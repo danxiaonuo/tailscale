@@ -439,6 +439,9 @@ func runUp(ctx context.Context, cmd string, args []string, upArgs upArgsT) (retE
 		if err := localClient.CheckIPForwarding(context.Background()); err != nil {
 			warnf("%v", err)
 		}
+		if err = localClient.CheckUDPGROForwarding(context.Background()); err != nil {
+			warnf("%v", err)
+		}
 	}
 
 	curPrefs, err := localClient.GetPrefs(ctx)
