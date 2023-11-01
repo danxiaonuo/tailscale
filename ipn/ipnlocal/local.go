@@ -86,6 +86,7 @@ import (
 	"tailscale.com/util/osshare"
 	"tailscale.com/util/rands"
 	"tailscale.com/util/set"
+	"tailscale.com/util/syspolicy"
 	"tailscale.com/util/systemd"
 	"tailscale.com/util/testenv"
 	"tailscale.com/util/uniq"
@@ -1096,6 +1097,9 @@ func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st control
 	if setExitNodeID(prefs, st.NetMap) {
 		prefsChanged = true
 	}
+	if applySysPolicy(prefs) {
+		prefsChanged = true
+	}
 
 	// Perform all mutations of prefs based on the netmap here.
 	if prefsChanged {
@@ -1186,6 +1190,37 @@ func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st control
 	// This is currently (2020-07-28) necessary; conditionally disabling it is fragile!
 	// This is where netmap information gets propagated to router and magicsock.
 	b.authReconfig()
+}
+
+func applySysPolicy(prefs *ipn.Prefs) (anyChange bool) {
+	if controlURL, err := syspolicy.GetString(syspolicy.ControlURL, prefs.ControlURL); err == nil && prefs.ControlURL != controlURL {
+		prefs.ControlURL = controlURL
+		anyChange = true
+	}
+
+	// Allow Incoming (used by the UI) is the negation of ShieldsUp (used by the
+	// backend), so this has to convert between the two conventions.
+	if shieldsUp, err := syspolicy.GetPreferenceOption(syspolicy.EnableIncomingConnections); err == nil {
+		anyChange = anyChange || shieldsUp.WillOverride(!prefs.ShieldsUp)
+		prefs.ShieldsUp = !shieldsUp.ShouldEnable(!prefs.ShieldsUp)
+	}
+
+	if forceDaemon, err := syspolicy.GetPreferenceOption(syspolicy.EnableServerMode); err == nil {
+		anyChange = anyChange || forceDaemon.WillOverride(prefs.ForceDaemon)
+		prefs.ForceDaemon = forceDaemon.ShouldEnable(prefs.ForceDaemon)
+	}
+
+	if corpDNS, err := syspolicy.GetPreferenceOption(syspolicy.EnableTailscaleDNS); err == nil {
+		anyChange = anyChange || corpDNS.WillOverride(prefs.CorpDNS)
+		prefs.CorpDNS = corpDNS.ShouldEnable(prefs.CorpDNS)
+	}
+
+	if routeAll, err := syspolicy.GetPreferenceOption(syspolicy.EnableTailscaleSubnets); err == nil {
+		anyChange = anyChange || routeAll.WillOverride(prefs.RouteAll)
+		prefs.RouteAll = routeAll.ShouldEnable(prefs.RouteAll)
+	}
+
+	return anyChange
 }
 
 var _ controlclient.NetmapDeltaUpdater = (*LocalBackend)(nil)
