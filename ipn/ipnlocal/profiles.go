@@ -456,6 +456,7 @@ var defaultPrefs = func() ipn.PrefsView {
 	prefs.ControlURL = controlURL
 
 	prefs.ExitNodeIP = resolveExitNodeIP(netip.Addr{})
+
 	// Allow Incoming (used by the UI) is the negation of ShieldsUp (used by the
 	// backend), so this has to convert between the two conventions.
 	shieldsUp, _ := winutil.GetPolicyString("AllowIncomingConnections")
