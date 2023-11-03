@@ -228,6 +228,17 @@ func isSIDValidPrincipal(uid string) bool {
 // EnableCurrentThreadPrivilege enables the named privilege
 // in the current thread access token.
 func EnableCurrentThreadPrivilege(name string) error {
+	return EnableCurrentThreadPrivileges([]string{name})
+}
+
+// EnableCurrentThreadPrivileges enables the named privileges
+// in the current thread access token.
+func EnableCurrentThreadPrivileges(names []string) error {
+	if len(names) == 0 {
+		// Nothing to enable; no-op isn't really an error...
+		return nil
+	}
+
 	var t windows.Token
 	err := windows.OpenThreadToken(windows.CurrentThread(),
 		windows.TOKEN_QUERY|windows.TOKEN_ADJUST_PRIVILEGES, false, &t)
@@ -236,19 +247,32 @@ func EnableCurrentThreadPrivilege(name string) error {
 	}
 	defer t.Close()
 
-	var tp windows.Tokenprivileges
+	tp := newTokenPrivileges(names)
+	privs := tp.AllPrivileges()
+	for i := range privs {
+		privStr, err := windows.UTF16PtrFromString(names[i])
+		if err != nil {
+			return err
+		}
+		err = windows.LookupPrivilegeValue(nil, privStr, &privs[i].Luid)
+		if err != nil {
+			return err
+		}
+		privs[i].Attributes = windows.SE_PRIVILEGE_ENABLED
+	}
 
-	privStr, err := syscall.UTF16PtrFromString(name)
-	if err != nil {
-		return err
+	return windows.AdjustTokenPrivileges(t, false, tp, 0, nil, nil)
+}
+
+func newTokenPrivileges(names []string) *windows.Tokenprivileges {
+	if len(names) == 0 {
+		panic("len(names) must be > 0")
 	}
-	err = windows.LookupPrivilegeValue(nil, privStr, &tp.Privileges[0].Luid)
-	if err != nil {
-		return err
-	}
-	tp.PrivilegeCount = 1
-	tp.Privileges[0].Attributes = windows.SE_PRIVILEGE_ENABLED
-	return windows.AdjustTokenPrivileges(t, false, &tp, 0, nil, nil)
+	numBytes := unsafe.Sizeof(windows.Tokenprivileges{}) + (uintptr(len(names)-1) * unsafe.Sizeof(windows.LUIDAndAttributes{}))
+	buf := make([]byte, numBytes)
+	result := (*windows.Tokenprivileges)(unsafe.Pointer(&buf[0]))
+	result.PrivilegeCount = uint32(len(names))
+	return result
 }
 
 // StartProcessAsChild starts exePath process as a child of parentPID.
@@ -336,35 +360,22 @@ func CreateAppMutex(name string) (windows.Handle, error) {
 	return windows.CreateMutex(nil, false, windows.StringToUTF16Ptr(name))
 }
 
-func getTokenInfo(token windows.Token, infoClass uint32) ([]byte, error) {
+func getTokenInfo[T any](token windows.Token, infoClass uint32) (*T, error) {
+	var buf []byte
 	var desiredLen uint32
+
 	err := windows.GetTokenInformation(token, infoClass, nil, 0, &desiredLen)
-	if err != nil && err != windows.ERROR_INSUFFICIENT_BUFFER {
-		return nil, err
+
+	for err == windows.ERROR_INSUFFICIENT_BUFFER {
+		buf = make([]byte, desiredLen)
+		err = windows.GetTokenInformation(token, infoClass, &buf[0], desiredLen, &desiredLen)
 	}
 
-	buf := make([]byte, desiredLen)
-	actualLen := desiredLen
-	err = windows.GetTokenInformation(token, infoClass, &buf[0], desiredLen, &actualLen)
-	return buf, err
-}
-
-func getTokenUserInfo(token windows.Token) (*windows.Tokenuser, error) {
-	buf, err := getTokenInfo(token, windows.TokenUser)
 	if err != nil {
 		return nil, err
 	}
 
-	return (*windows.Tokenuser)(unsafe.Pointer(&buf[0])), nil
-}
-
-func getTokenPrimaryGroupInfo(token windows.Token) (*windows.Tokenprimarygroup, error) {
-	buf, err := getTokenInfo(token, windows.TokenPrimaryGroup)
-	if err != nil {
-		return nil, err
-	}
-
-	return (*windows.Tokenprimarygroup)(unsafe.Pointer(&buf[0])), nil
+	return (*T)(unsafe.Pointer(&buf[0])), nil
 }
 
 type tokenElevationType int32
@@ -407,12 +418,12 @@ func GetCurrentUserSIDs() (*UserSIDs, error) {
 	}
 	defer token.Close()
 
-	userInfo, err := getTokenUserInfo(token)
+	userInfo, err := token.GetTokenUser()
 	if err != nil {
 		return nil, err
 	}
 
-	primaryGroup, err := getTokenPrimaryGroupInfo(token)
+	primaryGroup, err := token.GetTokenPrimaryGroup()
 	if err != nil {
 		return nil, err
 	}
@@ -634,4 +645,41 @@ func registerForRestart(opts RegisterForRestartOpts) error {
 	}
 
 	return nil
+}
+
+// ProcessImageName returns the fully-qualified path to the executable image
+// associated with process.
+func ProcessImageName(process windows.Handle) (string, error) {
+	var pathBuf [windows.MAX_PATH]uint16
+	pathBufLen := uint32(len(pathBuf))
+	if err := windows.QueryFullProcessImageName(process, 0, &pathBuf[0], &pathBufLen); err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(pathBuf[:pathBufLen]), nil
+}
+
+// TSSessionIDToLogonSessionID retrieves the logon session ID associated with
+// tsSessionId, which is a Terminal Services / RDP session ID. The calling
+// process must be running as LocalSystem.
+func TSSessionIDToLogonSessionID(tsSessionID uint32) (logonSessionID windows.LUID, err error) {
+	var token windows.Token
+	if err := windows.WTSQueryUserToken(tsSessionID, &token); err != nil {
+		return logonSessionID, fmt.Errorf("WTSQueryUserToken: %w", err)
+	}
+	defer token.Close()
+	return LogonSessionID(token)
+}
+
+type tokenOrigin struct {
+	originatingLogonSession windows.LUID
+}
+
+// LogonSessionID obtains the logon session ID associated with token.
+func LogonSessionID(token windows.Token) (logonSessionID windows.LUID, err error) {
+	origin, err := getTokenInfo[tokenOrigin](token, windows.TokenOrigin)
+	if err != nil {
+		return logonSessionID, err
+	}
+
+	return origin.originatingLogonSession, nil
 }
