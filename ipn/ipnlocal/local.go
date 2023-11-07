@@ -1776,6 +1776,17 @@ func (b *LocalBackend) updateFilterLocked(netMap *netmap.NetworkMap, prefs ipn.P
 				logNetsB.AddPrefix(r)
 			}
 		}
+
+		// App connectors handle DNS requests for app domains over PeerAPI (corp#11961),
+		// but a safety check verifies the requesting peer has at least permission
+		// to send traffic to 0.0.0.0:53 (or 2000:: for IPv6) before handling the DNS
+		// request. The correct filter rules are synthesized by the coordination server
+		// and sent down, but the address needs to be part of the 'local net' for the
+		// filter package to even bother checking the filter rules, so we set them here.
+		if prefs.AppConnector().Advertise {
+			localNetsB.Add(netip.MustParseAddr("0.0.0.0"))
+			localNetsB.Add(netip.MustParseAddr("::0"))
+		}
 	}
 	localNets, _ := localNetsB.IPSet()
 	logNets, _ := logNetsB.IPSet()
